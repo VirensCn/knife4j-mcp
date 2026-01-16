@@ -21,15 +21,19 @@ if (!DOCS_URL) {
  * @param item 单个文档配置项
  */
 const fetchDocsFile = async ({ url, contextPath }: any): Promise<any> => {
-  const openApiContent = await ofetch(url) ?? {};
+  try {
+    const openApiContent = await ofetch(url) ?? {};
 
-  const patha = Object.entries(openApiContent.paths ?? {});
-  const pathv = patha?.map(([path, methods]) => {
-    return [contextPath + path, methods];
-  }) ?? [];
+    const patha = Object.entries(openApiContent.paths ?? {});
+    const pathv = patha?.map(([path, methods]) => {
+      return [contextPath + path, methods];
+    }) ?? [];
 
-  return { ...openApiContent, paths: Object.fromEntries(pathv) };
-
+    return { ...openApiContent, paths: Object.fromEntries(pathv) };
+  } catch (error) {
+    console.error(`Error fetching docs from ${url}:`, error);
+    return {};
+  }
 }
 
 /**
