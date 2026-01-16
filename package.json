@@ -1,6 +1,6 @@
 {
-  "name": "knife4j-mcp",
-  "version": "0.0.10",
+  "name": "@virens/knife4j-mcp",
+  "version": "1.0.1",
   "description": "MCP server for Knife4j OpenAPI documentation",
   "author": "loosheng",
   "homepage": "https://github.com/loosheng/knife4j-mcp",
@@ -27,6 +27,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/polka": "^0.5.7",
     "bumpp": "^10.1.0",
+    "bun": "^1.3.6",
     "typescript": "^5"
   },
   "dependencies": {

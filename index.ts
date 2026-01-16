@@ -16,8 +16,44 @@ if (!DOCS_URL) {
   throw new Error("DOCS_URL environment variable is not set")
 }
 
-// Parse multiple URLs
-const docsUrls = DOCS_URL.split(",").map((url) => url.trim())
+/**
+ * 获取OpenAPI文档内容
+ * @param item 单个文档配置项
+ */
+const fetchDocsFile = async ({ url, contextPath }: any): Promise<any> => {
+  const openApiContent = await ofetch(url) ?? {};
+
+  const patha = Object.entries(openApiContent.paths ?? {});
+  const pathv = patha?.map(([path, methods]) => {
+    return [contextPath + path, methods];
+  }) ?? [];
+
+  return { ...openApiContent, paths: Object.fromEntries(pathv) };
+
+}
+
+/**
+ * 获取文档URL列表
+ * @returns 文档URL配置项数组
+ */
+const getDocsUrls = async (): Promise<any[]> => {
+  if (DOCS_URL && DOCS_URL.endsWith('swagger-config')) {
+    const regs = /^(https?:\/\/[\S\.\:]*?)\/.*/.exec(DOCS_URL);
+    const serverUrl = regs?.[1];
+
+    const { urls } = await ofetch(DOCS_URL);
+    return urls.map((item: any) => ({
+      contextPath: item.contextPath,
+      url: serverUrl + item.url,
+      name: item.name,
+    }))
+  }
+
+  return DOCS_URL.split(",").map((url) => ({
+    contextPath: '',
+    url: url.trim()
+  }));
+}
 
 // Types for OpenAPI document structure
 // NOTE: Removed unused OpenAPIDocument interface to reduce noise in diagnostics.
@@ -45,7 +81,7 @@ class DocsManager {
 
   async ensureInitialized(): Promise<void> {
     if (this.initialized) return
-    
+
     if (this.initPromise) {
       return this.initPromise
     }
@@ -57,8 +93,11 @@ class DocsManager {
 
   private async loadDocs(): Promise<void> {
     try {
-      for (const url of docsUrls) {
-        const openApiContent = await ofetch(url)
+      const docsUrls = await getDocsUrls();
+
+      for (const item of docsUrls) {
+        const openApiContent = await fetchDocsFile(item)
+
         const markdown = await parseOpenApiToMarkdown(openApiContent)
         const modules = extractModulesFromMarkdown(markdown)
 
@@ -90,7 +129,7 @@ class DocsManager {
   findApi(moduleName: string, apiName: string): { doc: ApiDoc; module: ApiDoc["modules"][0]; api: ApiDoc["modules"][0]["apis"][0] } | null {
     const result = this.findModule(moduleName)
     if (!result) return null
-    
+
     const api = result.module.apis.find(a => a.name === apiName)
     if (!api) return null
 
@@ -113,7 +152,7 @@ class DocsManager {
     return { found, notFound }
   }
 
-  findApis(queries: Array<{ module_name: string; api_name: string }>): { 
+  findApis(queries: Array<{ module_name: string; api_name: string }>): {
     found: Array<{ doc: ApiDoc; module: ApiDoc["modules"][0]; api: ApiDoc["modules"][0]["apis"][0]; query: { module_name: string; api_name: string } }>;
     notFound: Array<{ module_name: string; api_name: string }>
   } {
@@ -227,7 +266,7 @@ function extractModulesFromMarkdown(markdown: string): ApiDoc["modules"] {
 
     // Extract API list
     const apis = []
-    
+
     // Match all third-level headings as API names
     const apiRegex = /### (.+?)(?:\r?\n|\r)([\s\S]*?)(?=\r?\n### |$)/g
     let apiMatch
@@ -301,7 +340,7 @@ server.tool(
     try {
       await docsManager.ensureInitialized()
       const allModules = docsManager.getAllModules()
-      
+
       return {
         content: [
           {
@@ -351,24 +390,24 @@ server.tool(
     try {
       await docsManager.ensureInitialized()
       const { found, notFound } = docsManager.findModules(args.module_names)
-      
+
       // Build output content
       const content = ["[multi-module apis start]"]
-      
+
       // Add APIs for each found module
       for (const { module, name } of found) {
         content.push(`${name}:`)
         content.push(dump(module.apis).replace(/^/gm, '  ')) // Indent the YAML content
       }
-      
+
       // Add not found modules if any
       if (notFound.length > 0) {
         content.push("[not found modules]:")
         content.push(dump(notFound).replace(/^/gm, '  '))
       }
-      
+
       content.push("[multi-module apis end]")
-      
+
       return {
         content: [
           {
@@ -411,10 +450,10 @@ server.tool(
     try {
       await docsManager.ensureInitialized()
       const { found, notFound } = docsManager.findApis(args.api_queries)
-      
+
       // Build output content
       const content = ["[multi-api details start]"]
-      
+
       // Add details for each found API
       for (const { doc, query } of found) {
         const apiDetails = getApiDetailsFromMarkdown(
@@ -422,12 +461,12 @@ server.tool(
           query.module_name,
           query.api_name
         )
-        
+
         content.push(`${query.module_name}::${query.api_name}:`)
         content.push(apiDetails.replace(/^/gm, '  ')) // Indent the content
         content.push('') // Add empty line between APIs
       }
-      
+
       // Add not found APIs if any
       if (notFound.length > 0) {
         content.push("[not found apis]:")
@@ -435,9 +474,9 @@ server.tool(
           content.push(`  - ${query.module_name}::${query.api_name}`)
         }
       }
-      
+
       content.push("[multi-api details end]")
-      
+
       return {
         content: [
           {
@@ -474,7 +513,7 @@ server.tool(
   {
     q: z.string().describe("Search query. Examples: 'User::GetInfo', 'GET /users/{id}', 'users list'"),
     mode: z
-      .enum(["auto", "summary", "full"]) 
+      .enum(["auto", "summary", "full"])
       .optional()
       .describe("'auto' shows full text when exactly one match; 'summary' lists results; 'full' always returns first match details"),
     limit: z.number().int().positive().max(50).optional().describe("Max number of results (default 10)"),
@@ -585,20 +624,20 @@ server.tool(
 if (process.argv.includes("--debug")) {
   // Debug mode: fetch and convert OpenAPI docs to Markdown files
   console.log("Debug mode: fetching and converting OpenAPI docs...")
-
+  const docsUrls = await getDocsUrls();
   for (let i = 0; i < docsUrls.length; i++) {
-    const url = docsUrls[i]
-    console.log(`Processing [${i + 1}/${docsUrls.length}]: ${url}`)
+    console.log(`Processing [${i + 1}/${docsUrls.length}]: ${docsUrls[i].url}`)
 
     try {
-      const openApiContent = await ofetch(url)
+      const openApiContent = await fetchDocsFile(docsUrls[i])
+
       const markdown = await parseOpenApiToMarkdown(openApiContent)
 
       const filename = `docs-${i + 1}.md`
       await writeFile(filename, markdown, "utf-8")
       console.log(`✓ Written: ${filename}`)
     } catch (error) {
-      console.error(`✗ Failed to process ${url}:`, error)
+      console.error(`✗ Failed to process ${docsUrls[i].url}:`, error)
     }
   }
 
